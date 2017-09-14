@@ -116,17 +116,18 @@ impl<T> Stream for Receiver<T> {
         let result = {
             let mut inner = self.inner.lock().unwrap();
             if inner.value.is_none() {
-                if Arc::weak_count(&self.inner) == 0 {
-                    // no senders, terminate the stream
-                    return Ok(Async::Ready(None));
-                } else {
-                    inner.task = Some(task::current());
-                }
+                inner.task = Some(task::current());
             }
             inner.value.take()
         };
+        let is_only_reference = Arc::get_mut(&mut self.inner).is_some();
         match result {
             Some(value) => Ok(Async::Ready(Some(value))),
+            None if is_only_reference => {
+                self.inner.lock().unwrap().task.take();
+                // no senders, terminate the stream
+                return Ok(Async::Ready(None));
+            }
             None => Ok(Async::NotReady),
         }
     }
